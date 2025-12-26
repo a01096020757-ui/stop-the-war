@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>war4 — stop the war</title>
+  <style>
+    html, body { height:100%; margin:0; overflow:hidden; background:#000; }
+    #bg{
+      position:fixed; inset:0;
+      background-image:url("bg.png"); /* ✅ war4.html과 같은 폴더에 bg.png */
+      background-size:cover;
+      background-position:center;
+      background-repeat:no-repeat;
+      filter:saturate(1.02) contrast(1.03);
+    }
+    #veil{
+      position:fixed; inset:0;
+      background:radial-gradient(ellipse at center, rgba(0,0,0,0.05), rgba(0,0,0,0.40));
+      pointer-events:none;
+    }
+    canvas{ position:fixed; inset:0; width:100%; height:100%; }
+    #hint{
+      position:fixed; left:14px; bottom:12px;
+      color:rgba(255,255,255,0.85);
+      font:12px/1.2 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,"Apple SD Gothic Neo","Noto Sans KR",sans-serif;
+      text-shadow:0 2px 8px rgba(0,0,0,0.6);
+      user-select:none; pointer-events:none;
+    }
+  </style>
+</head>
+<body>
+  <div id="bg" aria-hidden="true"></div>
+  <div id="veil" aria-hidden="true"></div>
+  <canvas id="c"></canvas>
+  <div id="hint">클릭/터치: 발사 · 스페이스: 연속발사 토글 · R: 리셋</div>
+
+  <script>
+    const canvas = document.getElementById("c");
+    const ctx = canvas.getContext("2d", { alpha:true }); // ✅ 투명 캔버스
+    let dpr = 1;
+
+    function resize(){
+      dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+      canvas.width  = Math.floor(innerWidth  * dpr);
+      canvas.height = Math.floor(innerHeight * dpr);
+      ctx.setTransform(1,0,0,1,0,0);
+    }
+    addEventListener("resize", resize);
+    resize();
+
+    const bullets = [];
+    const phrase = "STOP THE WAR";
+    let autoFire = false;
+
+    const rand = (a,b)=>a+Math.random()*(b-a);
+
+    function spawnBullet(x,y,angle){
+      // x,y는 CSS 픽셀, 내부는 dpr로 변환
+      const bx = x*dpr, by = y*dpr;
+      const speed = rand(900,1450)*dpr;
+      bullets.push({
+        x:bx, y:by,
+        vx:Math.cos(angle)*speed,
+        vy:Math.sin(angle)*speed,
+        life:rand(0.7,1.15),
+        age:0,
+        rot:angle,
+        size:rand(0.9,1.25),
+        jitter:rand(-0.55,0.55),
+        glow:rand(0.55,0.95)
+      });
+    }
+
+    function fireFromBottom(targetX,targetY){
+      const sx = innerWidth/2, sy = innerHeight*0.80;
+      const ang = Math.atan2(targetY-sy, targetX-sx);
+      for(let i=0;i<2;i++){
+        spawnBullet(sx+rand(-10,10), sy+rand(-6,6), ang+rand(-0.08,0.08));
+      }
+    }
+
+    function drawBullet(b){
+      const t = b.age/b.life;
+      const alpha = Math.max(0, 1-t);
+
+      const len = 44*b.size*dpr;
+      const wid = 12*b.size*dpr;
+
+      ctx.save();
+      ctx.translate(b.x,b.y);
+      ctx.rotate(b.rot);
+
+      // 꼬리(잔상)
+      ctx.globalAlpha = 0.45*alpha;
+      ctx.fillStyle = "rgba(255,60,30,0.85)";
+      ctx.beginPath();
+      ctx.ellipse(-len*0.35, 0, len*0.55, wid*0.55, 0, 0, Math.PI*2);
+      ctx.fill();
+
+      // 본체(총알)
+      ctx.globalAlpha = 0.85*alpha;
+      ctx.shadowColor = `rgba(255,60,30,${0.7*b.glow})`;
+      ctx.shadowBlur = 18*dpr;
+
+      ctx.beginPath();
+      ctx.moveTo(-len/2, -wid/2);
+      ctx.quadraticCurveTo(len/2, -wid/2, len/2, 0);
+      ctx.quadraticCurveTo(len/2, wid/2, -len/2, wid/2);
+      ctx.quadraticCurveTo(-len*0.62, 0, -len/2, -wid/2);
+      ctx.closePath();
+      ctx.fillStyle = "rgba(255,60,30,0.95)";
+      ctx.fill();
+
+      // 하이라이트
+      ctx.shadowBlur = 0;
+      ctx.globalAlpha = 0.30*alpha;
+      ctx.fillStyle = "rgba(255,235,230,1)";
+      ctx.beginPath();
+      ctx.ellipse(-len*0.05, -wid*0.15, len*0.22, wid*0.18, 0, 0, Math.PI*2);
+      ctx.fill();
+
+      // 문구
+      ctx.globalAlpha = 0.95*alpha;
+      ctx.fillStyle = "rgba(255,245,240,0.95)";
+      ctx.font = `${Math.round(14*b.size*dpr)}px system-ui,-apple-system,Segoe UI,Roboto,Arial`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.rotate(b.jitter);
+      ctx.fillText(phrase, 0, 0);
+
+      ctx.restore();
+    }
+
+    let last = performance.now();
+    function tick(now){
+      const dt = Math.min(0.033, (now-last)/1000);
+      last = now;
+
+      // ✅ 캔버스를 완전히 검게 채우지 말고, 살짝만 어둡게(잔상 효과)
+      ctx.globalCompositeOperation = "source-over";
+      ctx.fillStyle = "rgba(0,0,0,0.10)";
+      ctx.fillRect(0,0,canvas.width,canvas.height);
+
+      if(autoFire){
+        fireFromBottom(rand(0,innerWidth), rand(0,innerHeight*0.65));
+      }
+
+      for(let i=bullets.length-1;i>=0;i--){
+        const b = bullets[i];
+        b.age += dt;
+        b.x += b.vx*dt;
+        b.y += b.vy*dt;
+        b.vx *= (1-0.35*dt);
+        b.vy *= (1-0.35*dt);
+
+        if(b.age>b.life || b.x<-250 || b.x>canvas.width+250 || b.y<-250 || b.y>canvas.height+250){
+          bullets.splice(i,1);
+          continue;
+        }
+        drawBullet(b);
+      }
+      requestAnimationFrame(tick);
+    }
+    requestAnimationFrame(tick);
+
+    addEventListener("pointerdown", e=>fireFromBottom(e.clientX,e.clientY));
+    addEventListener("keydown", e=>{
+      if(e.code==="Space") autoFire = !autoFire;
+      if(e.key==="r"||e.key==="R"){
+        bullets.length = 0;
+        ctx.clearRect(0,0,canvas.width,canvas.height); // ✅ 리셋은 투명으로
+      }
+    });
+  </script>
+</body>
+</html>
